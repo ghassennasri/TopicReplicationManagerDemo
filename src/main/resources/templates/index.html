@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>Kafka to MongoDB replication Topic Manager</title>
+    <link rel="stylesheet" th:href="@{/webjars/bootstrap/5.1.3/css/bootstrap.min.css}">
+    <script th:src="@{/webjars/jquery/3.6.0/jquery.min.js}"></script>
+    <script th:src="@{/webjars/bootstrap/5.1.3/js/bootstrap.bundle.min.js}"></script>
+</head>
+<body>
+<div class="container">
+    <h1>Kafka Topic Manager</h1>
+    <form id="add-topic-form">
+        <div class="mb-3">
+            <label for="topicName" class="form-label">Topic Name</label>
+            <input type="text" class="form-control" id="topicName" required>
+        </div>
+        <div class="mb-3">
+            <label for="ttlHours" class="form-label">TTL (Hours)</label>
+            <input type="number" class="form-control" id="ttlHours" required>
+        </div>
+        <button type="submit" class="btn btn-primary">Add Topic</button>
+    </form>
+    <hr>
+    <h2>Active Topics</h2>
+    <table class="table">
+        <thead>
+        <tr>
+            <th scope="col">#</th>
+            <th scope="col">Topic Name</th>
+            <th scope="col">TTL (Hours)</th>
+            <th scope="col">Remaining Time</th>
+        </tr>
+        </thead>
+        <tbody id="topics-table-body">
+        <!-- les topics seront insérés içi avec JavaScript -->
+        </tbody>
+    </table>
+</div>
+
+<script th:inline="javascript">
+    /*<![CDATA[*/
+
+    $(document).ready(() => {
+        refreshTopics();  // chargement initial des topics
+        updateRemainingTime();  // intilisation du countdown
+    });
+
+    let topics = [];
+
+    const refreshTopics = () => {
+        $.get('/api/topics', (data) => {
+            topics = data;
+            renderTopics();
+        });
+    };
+
+    const renderTopics = () => {
+        const tbody = $('#topics-table-body');
+        tbody.empty();
+        topics.forEach((topic, index) => {
+            const remainingTime = calculateRemainingTime(topic.startTime, topic.ttlHours);
+            tbody.append(`
+            <tr>
+                <th scope="row">${index + 1}</th>
+                <td>${topic.topicName}</td>
+                <td>${topic.ttlHours}</td>
+                <td id="remaining-time-${index}">${remainingTime}</td>
+                <td><button onclick="deleteTopic('${topic.topicName}')">Delete</button></td>
+            </tr>
+        `);
+        });
+    };
+
+    const updateRemainingTime = () => {
+        topics.forEach((topic, index) => {
+            const remainingTime = calculateRemainingTime(topic.startTime, topic.ttlHours);
+            $(`#remaining-time-${index}`).text(remainingTime);
+        });
+    };
+
+    // mettre à jour le countdown chaque seconde
+    setInterval(updateRemainingTime, 1000);
+    function deleteTopic(topicName) {
+        $.ajax({
+            url: '/api/topics?topicName=' + topicName,
+            type: 'DELETE',
+            success: refreshTopics
+        });
+    }
+
+    const calculateRemainingTime = (startTime, ttlHours) => {
+        const now = new Date();
+        const start = new Date(startTime);
+        const end = new Date(start.getTime() + ttlHours * 60 * 60 * 1000);
+        const remainingMillis = end - now;
+        return formatDuration(remainingMillis);
+    };
+
+    const formatDuration = (millis) => {
+        const hours = Math.floor(millis / (1000 * 60 * 60));
+        const minutes = Math.floor((millis % (1000 * 60 * 60)) / (1000 * 60));
+        const seconds = Math.floor((millis % (1000 * 60)) / 1000);
+
+        const pad = (num) => num.toString().padStart(2, '0');
+
+        return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+    };
+
+    $('#add-topic-form').submit((event) => {
+        event.preventDefault();
+        const topicName = $('#topicName').val();
+        const ttlHours = $('#ttlHours').val();
+        const payload = JSON.stringify({ topicName, ttlHours });
+        $.ajax({
+            url: '/api/topics',
+            type: 'POST',
+            contentType: 'application/json',
+            data: payload,
+            success: refreshTopics,
+            error: function(jqXHR, textStatus, errorThrown) {
+                console.error('Error:', textStatus, errorThrown);
+            }
+        });
+    });
+
+    refreshTopics();
+    /*]]>*/
+</script>
+</body>
+</html>
